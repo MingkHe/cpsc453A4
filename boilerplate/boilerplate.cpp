@@ -13,8 +13,9 @@
 // Date:    December 2015
 // ==========================================================================
 
-#include <iostream>
+#include <cstdio>
 #include <fstream>
+#include <iostream>
 #include <algorithm>
 #include <string>
 #include <iterator>
@@ -41,88 +42,7 @@ string LoadSource(const string &filename);
 GLuint CompileShader(GLenum shaderType, const string &source);
 GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader);
 
-//---------------------------------------------------------------------------
-// calculate t, r, s?
-struct Ray
-{
-	int x;
-	int y;
-	vec3 dirVector;
-};
 
-struct Shape
-{
-	int type; // 0 means sphere, 1 means plane; 2 means triangle
-	vector<vec3> data;
-	float addition = .0f;
-};
-
-vector<Ray> myRayList;
-vector<Shape> myShapeList;
-vector<vec3> myLightList;
-vector<vec3> colorList;
-vector<vec3> rayList;
-
-void generateRays(vector<Ray> &rayList, int window_width, int window_height, float depth){
-	for(int i=0; i<window_width;i++){
-		for(int j=0;j<window_height;j++){
-			vec3 dir = vec3((float)(i-window_width/2),(float)(j-window_height/2),depth);
-			Ray myRay;
-			myRay.x=i;
-			myRay.y=j;
-			myRay.dirVector = dir;
-			rayList.push_back(myRay);
-		}
-	}
-}
-
-void readFile(vector<Shape> &shapeList, const char* filename){
-}
-
-vec3 testIntersection(Ray aRay, Shape aShape){ 
-	if(aShape.type==0){
-		float a = pow(aRay.dirVector.x,2)+pow(aRay.dirVector.y,2)+pow(aRay.dirVector.z,2);
-		float b = 2*(dot(aRay.dirVector.x,aShape.data[0].x)+dot(aRay.dirVector.y,aShape.data[0].y)+dot(aRay.dirVector.z,aShape.data[0].z));
-		float c = pow(aShape.data[0].x,2)+pow(aShape.data[0].y,2)+pow(aShape.data[0].z,2)-pow(aShape.addition,2);
-		
-		if((pow(b,2)-4*a*c)<0){
-			return vec3(0,0,0); // why can't return null, alternative solution, use boolean as return type and pass in the intersection point vec3 to save the result if it has-
-		}else if((pow(b,2)-4*a*c)==0){
-			float t = -b/(2*a);
-			return (aRay.dirVector)*t;
-		}else{
-			float t = (-b-sqrt(pow(b,2)-4*a*c))/(2*a);
-			return (aRay.dirVector)*t;
-		}
-		
-		
-		
-		cout<<a<<endl;
-		cout<<b<<endl;
-		
-	}else if(aShape.type==1){
-		if(dot(aRay.dirVector,aShape.data[0])==0){
-			return vec3(0,0,0);
-		}else{
-			return vec3(0,0,0);
-		}
-	}else{
-		return vec3(0,0,0);
-	}
-}
-
-void setImage(vector<vec3> colorList){
-	//SetPixel();
-}
-
-vec3 shadingEquation(vec3 intersectionPoint, vec3 color, vec3 lightSource){
-	return vec3(0,0,0);
-}
-
-vec3 reflectionEquation(){
-	return vec3(0,0,0);
-}
-//---------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
 // Functions to set up OpenGL shader programs for rendering
@@ -282,6 +202,438 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 		glfwSetWindowShouldClose(window, GL_TRUE);
 }
 
+//---------------------------------------------------------------------------
+// calculate t, r, s?
+struct Ray
+{
+	vec3 origin;
+	vec3 dirVector;
+	float focalLength;
+};
+
+struct Light
+{
+	vec3 origin;
+	vec3 color;
+};
+
+struct Shape
+{
+	int type; // 0 means sphere, 1 means plane; 2 means triangle
+	vector<vec3> data;
+	float addition = .0f;
+	vec3 color;
+	int id;
+	vec3 specularColor;
+	vec3 specularHighLight;
+	float PEx;
+};
+
+struct IntersectionInfo
+{
+	float t;
+	Shape shape;	
+};
+
+vector<Ray> myRayList;
+vector<Shape> myShapeList;
+vector<Shape> myShadowShapeList;
+vector<vec3> myLightList;
+vector<vec3> colorList;
+vector<vec3> rayList;
+
+Ray generateRay(int x, int y, int width, int height, vec3 origin, float distance){
+	Ray aRay;
+	aRay.origin = origin;
+	aRay.focalLength = distance;
+	aRay.dirVector.z = -distance;
+	aRay.dirVector.x = (float)x/(width/2)-1.0f-origin.x;
+	aRay.dirVector.y = (float)y/(height/2)-1.0f-origin.y;
+	return aRay;
+}
+
+void readFile(vector<Shape> &shapeList, Light *light, const char* filename){
+		
+	ifstream f (filename);
+	
+	const int BUFF_SIZE = 256;
+	char buffer [BUFF_SIZE];
+
+	while(f){
+		string word;
+		f >> word;
+		if(word.compare("#") ==0){
+			f.getline(buffer,BUFF_SIZE);
+		}else if(word.compare("light") ==0){
+			f.getline(buffer,BUFF_SIZE);
+			
+			f.getline(buffer,BUFF_SIZE);
+			float x,y,z;
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){				
+				light->origin = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				light->color = vec3(x,y,z);
+			}
+
+		}else if(word.compare("sphere")==0){
+			Shape sphere;
+			sphere.type = 0;
+			f.getline(buffer,BUFF_SIZE);
+			
+			f.getline(buffer,BUFF_SIZE);
+			float x,y,z;
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				sphere.data.push_back(vec3(x,y,z));
+			}
+			
+			float r;
+			f >> r;
+			sphere.addition = r;
+			f.getline(buffer,BUFF_SIZE);
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				sphere.color = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				sphere.specularColor = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				sphere.specularHighLight = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f", &x)==1){
+				sphere.PEx = x;
+			}
+			
+			shapeList.push_back(sphere);
+							
+		}else if(word.compare("triangle")==0){
+			Shape triangle;
+			triangle.type = 2;
+			f.getline(buffer,BUFF_SIZE);
+			
+			f.getline(buffer,BUFF_SIZE);
+			float x,y,z;
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				triangle.data.push_back(vec3(x,y,z));
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				triangle.data.push_back(vec3(x,y,z));
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				triangle.data.push_back(vec3(x,y,z));
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				triangle.color= vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				triangle.specularColor = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				triangle.specularHighLight = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f", &x)==1){
+				triangle.PEx = x;
+			}
+			
+			shapeList.push_back(triangle);
+			
+		}else if(word.compare("plane")==0){
+			Shape plane;
+			plane.type = 1;
+			f.getline(buffer,BUFF_SIZE);
+			
+			f.getline(buffer,BUFF_SIZE);
+			float x,y,z;
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				plane.data.push_back(vec3(x,y,z));
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				plane.data.push_back(vec3(x,y,z));
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				plane.color = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				plane.specularColor = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f %f %f", &x, &y, &z)==3){
+				plane.specularHighLight = vec3(x,y,z);
+			}
+			
+			f.getline(buffer,BUFF_SIZE);
+			if(sscanf(buffer,"%f", &x)==1){
+				plane.PEx = x;
+			}
+			
+			shapeList.push_back(plane);
+		}
+	}
+	
+	f.close();
+}
+
+bool testIntersectSphere(Ray aRay, Shape aShape, IntersectionInfo *info){
+	bool hit = false;
+	vec3 e = aRay.origin;
+	vec3 d = aRay.dirVector;
+	vec3 c = aShape.data[0];
+	float r = aShape.addition;
+	
+	float discriminant = pow(dot(d,e-c),2)-dot(d,d)*(dot(e-c,e-c)-pow(r,2));
+	if(discriminant<0){
+		return hit;
+	}else{
+		hit = true;
+		float t = (-(dot(d,e-c))-sqrt(discriminant))/dot(d,d);
+		info->t = t;
+		info->shape = aShape;
+	}
+	
+	return hit;
+}
+
+bool testIntersectPlane(Ray aRay, Shape aShape, IntersectionInfo *info){
+	bool hit = false;
+	vec3 e = aRay.origin;
+	vec3 d = aRay.dirVector;
+	vec3 n = aShape.data[0];
+	vec3 q = aShape.data[1];
+	
+	if(abs(dot(d,n))<0.0001){
+		return hit;
+	}else{
+		hit = true;
+		float t = dot((q-e),n)/dot(d,n);
+		info->t = t;
+		info->shape = aShape;
+	}
+	return hit;
+}
+
+bool testIntersectTriangle(Ray aRay, Shape aShape, IntersectionInfo *info){
+	bool hit = false;
+	vec3 e = aRay.origin;
+	vec3 d = aRay.dirVector;
+	vec3 a = aShape.data[0];
+	vec3 b = aShape.data[1];
+	vec3 c = aShape.data[2];
+	
+	float A = a.x-b.x;
+	float B = a.y-b.y;
+	float C = a.z-b.z;
+	float D = a.x-c.x;
+	float E = a.y-c.y;
+	float F = a.z-c.z;
+	float G = d.x;
+	float H = d.y;
+	float I = d.z;
+	float J = a.x-e.x;
+	float K = a.y-e.y;
+	float L = a.z-e.z;
+	
+	float M =A*(E*I-H*F)+B*(G*F-D*I)+C*(D*H-E*G);
+	
+	float beta = (J*(E*I-H*F)+K*(G*F-D*I)+L*(D*H-E*G))/M;
+	float gamma = (I*(A*K-J*B)+H*(J*C-A*L)+G*(B*L-K*C))/M;
+	float t = -(F*(A*K-J*B)+E*(J*C-A*L)+D*(B*L-K*C))/M;
+	
+	if(M==0){
+		return hit;
+	}
+	
+	if(gamma<0 || gamma>1){
+		return hit;
+	}else if(beta<0 || beta>(1-gamma)){
+		return hit;
+	}
+
+	hit = true;
+	info->t = t;
+	info->shape = aShape;
+	
+	return hit;
+}
+
+bool testIntersection(Ray aRay, Shape aShape, IntersectionInfo *info){ 
+	bool hit = false;
+	if(aShape.type==0){
+		hit = testIntersectSphere(aRay, aShape, info);
+	}else if(aShape.type==1){
+		hit = testIntersectPlane(aRay, aShape, info);
+	}else if(aShape.type==2){
+		hit = testIntersectTriangle(aRay, aShape, info);
+	}
+	return hit;
+}
+
+
+
+bool testIntersections(Ray aRay, vector<Shape> objectList, IntersectionInfo *resultInfo,float lowerBound,float upperBound){ 
+	bool hit = false;
+	float t = upperBound;
+	for(int i=0; i<objectList.size();i++){
+		IntersectionInfo aInfo;
+		if(testIntersection(aRay, objectList[i],&aInfo)){
+			if(aInfo.t>=lowerBound && aInfo.t<t){
+				hit = true;
+				t = aInfo.t;
+				resultInfo->t=t;
+				resultInfo->shape=aInfo.shape;
+			}
+		}
+	}
+	
+	return hit;
+}
+
+vec3 shadingEquation(vec3 intersectionPoint,vec3 view,vec3 surfaceColor, vec3 lightColor, vec3 lightSource, vec3 surfaceNormalVec){
+	vec3 l = normalize(lightSource-intersectionPoint);
+	vec3 kd = surfaceColor;
+	vec3 I = lightColor;
+	vec3 n = surfaceNormalVec;
+	vec3 ks = vec3(0.7,0.7,0.7);
+	vec3 v = view;
+	vec3 h = normalize(v+l);
+	vec3 ka = surfaceColor;
+	vec3 Ia = vec3(.5f,.5f,.5f);
+	
+	return ka*Ia+kd*I*glm::max(.0f,dot(n,l))+ks*I*(float)(pow(glm::max(.0f,dot(n,h)),500));
+}
+
+vec3 surfaceNormalVector(Ray aRay, IntersectionInfo info){
+	vec3 result;
+	if(info.shape.type == 0){
+		result = (aRay.origin + info.t*aRay.dirVector)-info.shape.data[0];
+	}else if(info.shape.type == 1){
+		result = info.shape.data[0];
+	}else if(info.shape.type == 2){
+		result = cross(info.shape.data[1]-info.shape.data[0],info.shape.data[2]-info.shape.data[0]);
+	}
+	return normalize(result);
+}
+
+vec3 raycolor(Ray ray, float lowerBound, float upperBound,Light light){
+		IntersectionInfo info;
+		if(testIntersections(ray,myShapeList,&info,lowerBound,upperBound)){
+			vec3 d = ray.dirVector;
+			vec3 color = vec3(0,0,0);
+			vec3 n = surfaceNormalVector(ray,info);
+			vec3 v = normalize(-d);
+			vec3 intersectP = ray.origin+info.t*d;
+			color = info.shape.color*vec3(.5f,.5f,.5f);
+				
+			Ray shadowRay;
+			shadowRay.origin = intersectP;
+			shadowRay.dirVector = (light.origin-shadowRay.origin);
+			IntersectionInfo emptyInfo;
+			if(!testIntersections(shadowRay,myShapeList,&emptyInfo,0.0001f,1.0f)){				
+				vec3 l = normalize(light.origin-intersectP);
+				vec3 kd = info.shape.color;
+				vec3 I = light.color;					
+				vec3 ks = vec3(0.7,0.7,0.7);			
+				vec3 h = normalize(v+l);
+				color = color+kd*I*glm::max(.0f,dot(n,l))+ks*I*(float)(pow(glm::max(.0f,dot(n,h)),500));
+			}
+			return color;
+		}else{
+			return vec3(0,0,0);
+		}
+	
+}
+
+vec3 raycolorRe(Ray ray, float lowerBound, float upperBound,Light light,int times){
+		IntersectionInfo info;
+		if(testIntersections(ray,myShapeList,&info,lowerBound,upperBound)){
+			vec3 d = ray.dirVector;
+			vec3 color = vec3(0,0,0);
+			vec3 n = surfaceNormalVector(ray,info);
+			vec3 v = normalize(-d);
+			vec3 intersectP = ray.origin+info.t*d;
+			color = info.shape.color*vec3(.4f,.4f,.4f);
+				
+			Ray shadowRay;
+			shadowRay.origin = intersectP;
+			shadowRay.dirVector = (light.origin-shadowRay.origin);
+			IntersectionInfo emptyInfo;
+			if(!testIntersections(shadowRay,myShapeList,&emptyInfo,0.0001f,1.0f)){				
+				vec3 l = normalize(light.origin-intersectP);
+				vec3 kd = info.shape.color;
+				vec3 I = light.color;					
+				vec3 ks = info.shape.specularHighLight;			
+				vec3 h = normalize(v+l);
+				color = color+kd*I*glm::max(.0f,dot(n,l))+ks*I*(float)(pow(glm::max(.0f,dot(n,h)),info.shape.PEx));
+			}
+			vec3 r = normalize(d) - 2*dot(normalize(d),n)*n;
+			vec3 km = info.shape.specularColor;
+			Ray reflectionRay;
+			reflectionRay.origin = intersectP;
+			reflectionRay.dirVector = r;
+			if(info.shape.specularColor==vec3(0,0,0))
+				times=0;
+			if(times>0){
+				times--;
+				return color+km*raycolorRe(reflectionRay,0.0001,99999.9f,light,times);
+			}else{
+				return color;
+			}
+		}else{
+			return vec3(0,0,0);
+		}
+	
+}
+
+
+
+vec3 reflectionEquation(){
+	return vec3(0,0,0);
+}
+
+void printLines(const char* filename){
+	ifstream f (filename);
+	
+	const int BUFF_SIZE = 256; // why chose 256
+	char buffer [BUFF_SIZE];
+	
+	while(f){
+		f.getline(buffer, BUFF_SIZE);
+		cout << buffer << endl;
+	}
+	
+	f.close();
+}
+
+//---------------------------------------------------------------------------
+
 // ==========================================================================
 // PROGRAM ENTRY POINT
 
@@ -321,55 +673,35 @@ int main(int argc, char *argv[])
 
 	// query and print out information about our OpenGL environment
 	QueryGLVersion();
+	
+	Light light1;
+	readFile(myShapeList,&light1,"scene3.txt");
+	cout<<myShapeList.size()<<endl;
 
-	vec3 pointA = vec3(3,1,-1);
-	vec3 pointB = vec3(5,0,1);
-	vec3 pointC = vec3(5,3,1);
-	
-	vec3 vectorD = vec3(1,1,0);
-	
-	vec3 pointP1 = vec3(1,-1,0);
-	vec3 pointP2 = vec3(1,-1,2);
-	
-	//Ray ray1;
-	//ray1.dirVector = vectorD;
-	//ImageBuffer image = ImageBuffer();
 
-	generateRays(myRayList,width,height,50.0f);
-	
-	//for(int i=0;i<myRayList.size();i++){
-		//printf("%f\n",myRayList[i].dirVector.x);
-		//cout<<myRayList[i].dirVector.x<<endl;
-		//printf("Ray %d, dirVector is %f %f %f\n", i, myRayList[i].dirVector.x, myRayList[i].dirVector.y,myRayList[i].dirVector.z);
-	//}
-	
-	myLightList.push_back(vec3(0,2.5,-7.75));
-	
-	Shape sphere1;
-	sphere1.type = 0;
-	sphere1.data.push_back(vec3(0.9,-1.925,-6.69));
-	sphere1.addition = 0.825f;
-	
-	Shape plane1;
-	plane1.type = 1;
-	plane1.data.push_back(vec3(0,0,1));
-	plane1.data.push_back(vec3(0,0,-10.5));
-	
-	myShapeList.push_back(sphere1);
-	myShapeList.push_back(plane1);
-	
-	testIntersection(myRayList[0],myShapeList[0]);
-	
 	ImageBuffer image = ImageBuffer();
 	image.Initialize();
 	
-	for(int i=0;i<myRayList.size();i++){
-		image.SetPixel(myRayList[i].x,myRayList[i].y,normalize(myRayList[i].dirVector));
+	for(int i=0;i<width;i++){
+		for(int j=0;j<height;j++){
+			Ray ray = generateRay(i,j,width,height,vec3(0,0,0),2.0f);
+			vec3 color = vec3(0,0,0);
+
+			//color = raycolor(ray,.0f,99999.9f,light1);
+			color = raycolorRe(ray,.0f,9999.9f,light1,10);
+			
+			image.SetPixel(i,j,color);
+		}
 	}
 	
+	//readData("scene2.txt");
+	
+	
 	image.Render();
-
-
+	
+	image.SaveToFile("renderImage.png");
+	
+	
 	// run an event-triggered main loop
 	while (!glfwWindowShouldClose(window))
 	{
